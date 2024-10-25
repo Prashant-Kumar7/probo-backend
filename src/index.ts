@@ -1,9 +1,14 @@
 import express, { Response , Request } from "express"
-import cors from "cors"
+// import cors from "cors"
+import { createClient } from "redis";
 // import axios from "../node_modules/axios/index"
 export const app = express()
 
 const port = 3000
+
+const client = createClient()
+client.on('error', (err) => console.log('Redis Client Error', err));
+
 
 interface INR_BALANCES_Type {
     [key  : string] : {
@@ -128,7 +133,7 @@ const STOCK_BALANCES : STOCK_BALANCES_Type = {
 
 
 app.use(express.json())
-app.use(cors())
+// app.use(cors())
 
 app.get("/",  (req: Request , res : Response)=>{
   
@@ -529,13 +534,24 @@ app.get("/balance/inr/:userId" , (req : Request , res : Response)=>{
     res.json(INR_BALANCES[userId])
 })
 
-app.listen(port , ()=>{
-    console.log(`server is running on port ${port}`)
-})
+async function startServer() {
+    try {
+        await client.connect();
+        console.log("Connected to Redis");
+
+        app.listen(3000, () => {
+            console.log("Server is running on port 3000");
+        });
+    } catch (error) {
+        console.error("Failed to connect to Redis", error);
+    }
+}
+
+startServer()
 
 
 
-function AddToOrderBook ( 
+async function AddToOrderBook ( 
     stockSymbol : String | number |  any, 
     quantity : number , 
     price : number , 
@@ -545,8 +561,6 @@ function AddToOrderBook (
     if(ORDERBOOK[stockSymbol][stockType][price]){
         ORDERBOOK[stockSymbol] = {
             ...ORDERBOOK[stockSymbol],
-            // [stockSymbol] : {
-            //     ...ORDERBOOK[stockSymbol],
                 [stockType] : {
                     ...ORDERBOOK[stockSymbol][stockType],
                     [price] : {
@@ -557,8 +571,12 @@ function AddToOrderBook (
                         }
                     }
                 }
-            // }
         }
+
+        // const changeOrderbook = ORDERBOOK[stockSymbol]
+        await client.lPush("stocks", JSON.stringify({stock : ORDERBOOK[stockSymbol] , Symbol : stockSymbol}));
+
+        console.log("orderbook changed and pushed to redis")
     } else {
         ORDERBOOK[stockSymbol][stockType][price] = { 
              total : quantity,
@@ -566,6 +584,10 @@ function AddToOrderBook (
                 [userId] : quantity
              }
         }
+
+        await client.lPush("stocks", JSON.stringify({stock : ORDERBOOK[stockSymbol] , Symbol : stockSymbol}));
+
+        console.log("orderbook changed and pushed to redis")
     }
 }
 
@@ -588,7 +610,7 @@ function LockINR (userId : string , lockingAmout : number){
     INR_BALANCES[userId].locked += lockingAmout
 }
 
-function reqBuy(
+async function reqBuy(
     stockSymbol : String | number |  any, 
     quantity : number , 
     price : number , 
@@ -620,7 +642,7 @@ function reqBuy(
             balancedNumber = ORDERBOOK[stockSymbol][stockType][price].orders[userId] - (quantity - noOfStocksBought)
             if(balancedNumber <= 0){
                 if(userId.includes("probo")){
-                    mintMatchingStocks(userId , stockType , stockSymbol , price , userID , noOfStocksBought)
+                    mintMatchingStocks(userId , stockType , stockSymbol , price , userID , noOfStocksBought , balancedNumber)
                 } else {
 
                     INR_BALANCES[userId].balance += ORDERBOOK[stockSymbol][stockType][price].orders[userId] * price
@@ -634,7 +656,7 @@ function reqBuy(
 
             if(balancedNumber > 0){
                 if(userId.includes("probo")){
-                    mintMatchingStocks(userId , stockType , stockSymbol , price , userID , noOfStocksBought)
+                    mintMatchingStocks(userId , stockType , stockSymbol , price , userID , noOfStocksBought , balancedNumber)
                 } else {
                     INR_BALANCES[userId].balance += (ORDERBOOK[stockSymbol][stockType][price].orders[userId] - balancedNumber) * price
                     INR_BALANCES[userID].locked -=  (ORDERBOOK[stockSymbol][stockType][price].orders[userId] - balancedNumber) * price
@@ -659,7 +681,8 @@ function reqBuy(
             } else if(stockType === "no") {
                 AddToOrderBook(stockSymbol , remainingStockQuantity , amountToPlaceSellOrder/remainingStockQuantity ,sellingId, "yes")
             }
-    
+            await client.lPush("stocks", JSON.stringify({stock : ORDERBOOK[stockSymbol] , Symbol : stockSymbol}));
+            console.log("orderbook changed and pushed to redis")
             return
 
         }
@@ -667,6 +690,9 @@ function reqBuy(
         if(ORDERBOOK[stockSymbol][stockType][price].total === 0){
             delete ORDERBOOK[stockSymbol][stockType][price]
         }
+
+            await client.lPush("stocks", JSON.stringify({stock : ORDERBOOK[stockSymbol] , Symbol : stockSymbol}));
+        console.log("orderbook changed and pushed to redis")
 
         return
     }
@@ -683,7 +709,8 @@ function mintMatchingStocks(
     stockSymbol : string , 
     price : number , 
     userID :string , 
-    noOfStocksBought : number , 
+    noOfStocksBought : number ,
+    balancedNumber : number 
 ){
     const reverseOrderId = userId.slice(6 , userId.length + 1)
     if(stockType === "yes"){
@@ -692,13 +719,21 @@ function mintMatchingStocks(
         STOCK_BALANCES[userID][stockSymbol][stockType].quantity += ORDERBOOK[stockSymbol][stockType][price].orders[userId]
         STOCK_BALANCES[reverseOrderId][stockSymbol]["no"].quantity += ORDERBOOK[stockSymbol][stockType][price].orders[userId]
         noOfStocksBought = noOfStocksBought + ORDERBOOK[stockSymbol][stockType][price].orders[userId]
-        delete ORDERBOOK[stockSymbol][stockType][price].orders[userId]
+        if(balancedNumber <= 0){
+            delete ORDERBOOK[stockSymbol][stockType][price].orders[userId]
+        } else if(balancedNumber > 0) {
+            ORDERBOOK[stockSymbol][stockType][price].orders[userId] = balancedNumber
+        }
     } else if(stockType === "no"){
         INR_BALANCES[reverseOrderId].locked -= 1000*ORDERBOOK[stockSymbol][stockType][price].orders[userId] - ORDERBOOK[stockSymbol][stockType][price].orders[userId] * price
         INR_BALANCES[userID].locked -=  ORDERBOOK[stockSymbol][stockType][price].orders[userId] * price
         STOCK_BALANCES[userID][stockSymbol][stockType].quantity += ORDERBOOK[stockSymbol][stockType][price].orders[userId]
         STOCK_BALANCES[reverseOrderId][stockSymbol]["yes"].quantity += ORDERBOOK[stockSymbol][stockType][price].orders[userId]
         noOfStocksBought = noOfStocksBought + ORDERBOOK[stockSymbol][stockType][price].orders[userId]
-        delete ORDERBOOK[stockSymbol][stockType][price].orders[userId]
+        if(balancedNumber <= 0){
+            delete ORDERBOOK[stockSymbol][stockType][price].orders[userId]
+        } else if(balancedNumber > 0) {
+            ORDERBOOK[stockSymbol][stockType][price].orders[userId] = balancedNumber
+        }
     }
 }
