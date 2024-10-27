@@ -290,9 +290,9 @@ async function runEngine(restart : boolean) {
                         continue
 
                     } else if(data.endPoint === "/orderbook"){
-                        // getOrderbook(data)
-                        const res = ORDERBOOK
-                        await client.lPush(data.eventId, JSON.stringify(res));
+                        getOrderbook(data)
+                        // const res = ORDERBOOK
+                        // await client.lPush(data.eventId, JSON.stringify(res));
                         continue
 
                     } else if(data.endPoint === "/balances/inr"){
@@ -300,13 +300,13 @@ async function runEngine(restart : boolean) {
                         continue
 
                     } else if(data.endPoint === "/balance/inr/:userId"){
-                        // getUserBalances(data)
-                        const userId = data.body
+                        getUserBalances(data)
+                        // const userId = data.body
 
-                        const res = INR_BALANCES[userId]
-                        console.log("before pushing")
-                        await client.lPush(data.eventId , JSON.stringify(res))
-                        console.log("after pushing")
+                        // const res = INR_BALANCES[userId]
+                        // console.log("before pushing")
+                        // await client.lPush(data.eventId , JSON.stringify(res))
+                        // console.log("after pushing")
                         continue
                     } else if(data.endPoint === "/balances/stock"){
                         getStocks(data)
