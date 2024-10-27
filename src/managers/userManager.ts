@@ -32,10 +32,11 @@ export class UserManagers {
         this.addHandler(socket)
     }
 
-    redisQueue(submission : Submission | null){
+    redisQueue(submission : string){
         if(submission){
             // console.log(submission)
-            const element = submission.element
+            // const element = submission.element
+            const element = submission
             console.log(element)
             const orderBook = JSON.parse(element.toString())
             console.log(orderBook)
@@ -60,6 +61,8 @@ export class UserManagers {
             }
 
         }
+
+        // console.log(this.USERS_OBJECT)
     }
 
     private addHandler(socket : WebSocket){
