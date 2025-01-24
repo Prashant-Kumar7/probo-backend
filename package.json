@@ -4,7 +4,8 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "test": "cross-env NODE_OPTIONS='$NODE_OPTIONS --experimental-vm-modules' npx jest"
+    "test": "cross-env NODE_OPTIONS='$NODE_OPTIONS --experimental-vm-modules' npx jest",
+    "start" : "node dist/backend-api.js && node dist/engine.js && node dist/wss.js"
   },
   "keywords": [],
   "author": "",
